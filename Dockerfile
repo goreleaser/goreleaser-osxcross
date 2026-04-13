@@ -1,4 +1,4 @@
-FROM debian:bullseye AS builder
+FROM ubuntu:noble AS osxcross-builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG APT_MIRROR
@@ -17,7 +17,11 @@ RUN \
         g++ \
         git \
         cmake \
+        curl \
+        unzip \
+        patch \
         coreutils \
+        python3 \
         ca-certificates \
         autotools-dev \
         libxml2-dev \
@@ -37,14 +41,14 @@ RUN \
  && rm -rf /usr/share/man/* \
     /usr/share/doc
 
-ENV OSX_CROSS_PATH=/osxcross
-
+ARG WORKDIR=/build
+ARG OSX_CROSS_PATH=/usr/local/osxcross
 ARG OSX_CROSS_COMMIT
 ARG OSX_SDK
 ARG OSX_SDK_SUM
 ARG OSX_VERSION_MIN
 
-WORKDIR "${OSX_CROSS_PATH}"
+WORKDIR "$WORKDIR"
 
 COPY patches /patches
 
@@ -53,19 +57,30 @@ RUN \
  && git config user.name "John Doe" \
  && git config user.email johndoe@example.com \
  && git checkout -q "${OSX_CROSS_COMMIT}" \
- && git am < /patches/libcxx.patch \
  && rm -rf ./.git
 
-# install osxcross:
-COPY tars/${OSX_SDK}.tar.xz "${OSX_CROSS_PATH}/tarballs/${OSX_SDK}.tar.xz"
+#&& git am < /patches/libcxx.patch
+#COPY ./ $WORKDIR/
+
+#RUN
+#    cd osxcross
+# && git config user.name "John Doe"
+# && git config user.email johndoe@example.com
+# && git am < ../patches/libcxx.patch
+
+COPY tars/${OSX_SDK}.tar.xz "$WORKDIR/tarballs/${OSX_SDK}.tar.xz"
 
 RUN \
-    echo "${OSX_SDK_SUM}" "${OSX_CROSS_PATH}/tarballs/${OSX_SDK}.tar.xz" | sha256sum -c - \
- && UNATTENDED=1 OSX_VERSION_MIN=${OSX_VERSION_MIN} ./build.sh
+    echo "${OSX_SDK_SUM}" "tarballs/${OSX_SDK}.tar.xz" | sha256sum -c - \
+ && UNATTENDED=1 TARGET_DIR="$OSX_CROSS_PATH" OSX_VERSION_MIN=${OSX_VERSION_MIN} ./build.sh
 
-FROM debian:bullseye-slim AS final
+FROM debian:trixie-slim
+
+ARG OSX_CROSS_PATH=/usr/local/osxcross
 
 LABEL maintainer="Artur Troian <troian dot ap at gmail dot com>"
 LABEL "org.opencontainers.image.source"="https://github.com/goreleaser/goreleaser-osxcross"
 
-COPY --from=builder "${OSX_CROSS_PATH}/target" "${OSX_CROSS_PATH}/target"
+COPY --from=osxcross-builder "${OSX_CROSS_PATH}" "${OSX_CROSS_PATH}"
+
+ENV PATH=$PATH:"$OSX_CROSS_PATH/bin"
